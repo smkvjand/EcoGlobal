@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EcoRoute | The Living Atlas</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: { headline: ['Plus Jakarta Sans'], body: ['Be Vietnam Pro'] },
+        colors: {
+          primary: '#006a2b', 'primary-dim': '#005d24', 'primary-container': '#86f898',
+          secondary: '#765600', 'secondary-container': '#ffca53',
+          tertiary: '#b41a14', 'tertiary-container': '#ff9384',
+          surface: '#edf8ff', 'surface-container': '#cbedff',
+          'surface-container-low': '#e0f4ff', 'surface-container-lowest': '#ffffff',
+          'surface-container-high': '#c0e9fd', 'surface-container-highest': '#b8e3f9',
+          'on-surface': '#14323e', 'on-surface-variant': '#435f6d',
+          outline: '#5e7b89', 'outline-variant': '#94b2c1',
+          'on-primary': '#cfffcf', 'on-primary-container': '#005d25',
+          'on-secondary': '#fff1db', 'on-secondary-container': '#5d4300',
+          'on-tertiary': '#ffefed', 'on-tertiary-container': '#690002',
+        }
+      }
+    }
+  }
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Be Vietnam Pro', sans-serif; background: #edf8ff; color: #14323e; margin: 0; }
+  h1,h2,h3,.font-headline { font-family: 'Plus Jakarta Sans', sans-serif; }
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; vertical-align: middle; }
+
+  /* Map */
+  #map { width: 100%; height: 100%; z-index: 0; }
+  .leaflet-control-zoom { border: none !important; margin-right: 1.5rem !important; margin-top: 6rem !important; }
+  .leaflet-control-zoom-in, .leaflet-control-zoom-out {
+    background: rgba(255,255,255,0.85) !important; backdrop-filter: blur(8px);
+    color: #006a2b !important; border: 1px solid rgba(0,0,0,0.06) !important;
+    border-radius: 8px !important; margin-bottom: 4px !important; width: 34px !important; height: 34px !important; line-height: 34px !important;
+  }
+  .leaflet-attribution-flag { display: none !important; }
+
+  /* Eco Score ring */
+  #eco-progress { transition: stroke-dashoffset 1s ease-in-out; }
+
+  /* Toggle */
+  .toggle-track { transition: background 0.3s; }
+  .toggle-knob { transition: left 0.3s; }
+
+  /* Noise bars */
+  .noise-bar { transition: height 0.1s ease; }
+
+  /* Chart */
+  #impactChart { max-height: 200px; }
+
+  /* Custom scrollbar */
+  .custom-scroll::-webkit-scrollbar { width: 4px; }
+  .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+  .custom-scroll::-webkit-scrollbar-thumb { background: #94b2c1; border-radius: 10px; }
+
+  /* Tabs */
+  .tab-btn.active { background: #006a2b; color: #cfffcf; }
+  .tab-btn { transition: all 0.2s; }
+
+  /* Alert toast */
+  #alert-toast {
+    transform: translateY(100px); opacity: 0;
+    transition: transform 0.4s ease, opacity 0.4s ease;
+    pointer-events: none;
+  }
+  #alert-toast.show { transform: translateY(0); opacity: 1; pointer-events: auto; }
+
+  /* Loading shimmer */
+  @keyframes shimmer { 0%{background-position:-200px 0} 100%{background-position:calc(200px + 100%) 0} }
+  .shimmer {
+    background: linear-gradient(90deg,#e0f4ff 25%,#cbedff 50%,#e0f4ff 75%);
+    background-size: 200px 100%; animation: shimmer 1.5s infinite;
+  }
+
+  /* Pulse */
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .pulse-dot { animation: pulse-dot 2s infinite; }
+
+  /* Route card hover */
+  .route-card { transition: transform 0.2s, box-shadow 0.2s; }
+  .route-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,106,43,0.1); }
+  .route-card.selected { border: 2px solid #006a2b; }
+
+  /* Section pages */
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* Heatmap legend */
+  .legend-gradient {
+    background: linear-gradient(to right, #22c55e, #eab308, #f97316, #ef4444);
+    height: 8px; border-radius: 4px;
+  }
+</style>
+</head>
+<body class="antialiased">
+
+<!-- ===================== HEADER ===================== -->
+<header class="fixed top-0 w-full flex justify-between items-center px-5 py-3 bg-sky-50/80 backdrop-blur-xl z-[1001] shadow-sm shadow-slate-900/5">
+  <div class="flex items-center gap-4">
+    <span class="text-xl font-black text-green-900 tracking-tighter font-headline">🌿 EcoRoute</span>
+    <div class="hidden md:flex items-center bg-[#cbedff] px-4 py-2 rounded-full w-80 gap-2 focus-within:bg-[#b8e3f9] transition-all">
+      <span class="material-symbols-outlined text-[#5e7b89] text-[18px]">search</span>
+      <input id="city-search" class="bg-transparent border-none focus:ring-0 text-sm font-medium w-full placeholder:text-[#5e7b89] outline-none" placeholder="Search any city..." type="text"/>
+    </div>
+  </div>
+  <nav class="hidden md:flex items-center gap-1">
+    <button onclick="switchPage('map')" class="nav-tab px-4 py-2 rounded-full text-sm font-bold text-green-700 bg-green-100 font-headline transition-all">Map</button>
+    <button onclick="switchPage('dashboard')" class="nav-tab px-4 py-2 rounded-full text-sm font-semibold text-slate-500 hover:bg-green-50 font-headline transition-all">Dashboard</button>
+    <button onclick="switchPage('routes')" class="nav-tab px-4 py-2 rounded-full text-sm font-semibold text-slate-500 hover:bg-green-50 font-headline transition-all">Routes</button>
+    <button onclick="switchPage('alerts')" class="nav-tab px-4 py-2 rounded-full text-sm font-semibold text-slate-500 hover:bg-green-50 font-headline transition-all">Alerts</button>
+  </nav>
+  <div class="flex items-center gap-3">
+    <button onclick="switchPage('alerts')" class="relative material-symbols-outlined text-green-800 hover:bg-green-50 p-2 rounded-full transition-all">notifications
+      <span id="alert-badge" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full hidden"></span>
+    </button>
+    <div class="w-9 h-9 rounded-full overflow-hidden border-2 border-[#86f898] bg-green-200 flex items-center justify-center text-green-800 font-bold text-sm">U</div>
+  </div>
+</header>
+
+<!-- ===================== SIDEBAR ===================== -->
+<aside class="hidden lg:flex flex-col h-screen fixed left-0 top-0 bg-sky-50 w-60 rounded-r-[2.5rem] z-[1000] shadow-2xl shadow-green-900/5 pt-20 pb-6">
+  <div class="px-5 mb-6">
+    <h2 class="text-lg font-black text-green-900 font-headline">EcoRoute</h2>
+    <p class="text-[10px] text-[#5e7b89] font-bold tracking-widest uppercase">THE LIVING ATLAS</p>
+  </div>
+  <div class="flex-1 space-y-1 px-2">
+    <button onclick="switchPage('map')" class="sidebar-btn w-full text-left px-4 py-3 flex items-center gap-3 rounded-full font-medium transition-all bg-green-100 text-green-900">
+      <span class="material-symbols-outlined text-[20px]">map</span> Map
+    </button>
+    <button onclick="switchPage('dashboard')" class="sidebar-btn w-full text-left px-4 py-3 flex items-center gap-3 text-slate-600 hover:translate-x-1 transition-all">
+      <span class="material-symbols-outlined text-[20px]">analytics</span> Dashboard
+    </button>
+    <button onclick="switchPage('routes')" class="sidebar-btn w-full text-left px-4 py-3 flex items-center gap-3 text-slate-600 hover:translate-x-1 transition-all">
+      <span class="material-symbols-outlined text-[20px]">alt_route</span> Routes
+    </button>
+    <button onclick="switchPage('alerts')" class="sidebar-btn w-full text-left px-4 py-3 flex items-center gap-3 text-slate-600 hover:translate-x-1 transition-all">
+      <span class="material-symbols-outlined text-[20px]">campaign</span> Alerts
+    </button>
+  </div>
+  <div class="px-3 mt-auto space-y-3">
+    <button onclick="switchPage('routes')" class="w-full bg-gradient-to-br from-[#006a2b] to-[#005d24] text-[#cfffcf] py-3 rounded-full font-bold shadow-lg shadow-green-900/20 active:scale-95 transition-all text-sm">
+      + New Route
+    </button>
+    <div class="pt-3 border-t border-[#94b2c1]/20 space-y-1">
+      <a class="text-slate-500 px-3 py-2 flex items-center gap-3 text-xs font-medium hover:text-green-700 transition-all" href="#"><span class="material-symbols-outlined text-base">help</span> Support</a>
+      <a class="text-slate-500 px-3 py-2 flex items-center gap-3 text-xs font-medium hover:text-green-700 transition-all" href="#"><span class="material-symbols-outlined text-base">person</span> Account</a>
+    </div>
+  </div>
+</aside>
+
+<!-- ===================== PAGE: MAP ===================== -->
+<div id="page-map" class="page active lg:pl-60 pt-14 h-screen w-full relative overflow-hidden">
+  <div class="absolute inset-0 lg:left-60" id="map-container">
+    <div id="map" style="height:100%;width:100%;"></div>
+  </div>
+
+  <!-- Map Overlays -->
+  <div class="relative z-10 p-4 flex flex-col h-full pointer-events-none">
+    <div class="flex justify-between items-start w-full pointer-events-auto">
+      <!-- Left: Controls -->
+      <div class="flex flex-col gap-3">
+        <!-- Pollen Toggle -->
+        <div class="bg-white/85 backdrop-blur-xl p-3 rounded-xl shadow-lg flex items-center gap-3">
+          <div class="w-9 h-9 bg-[#ffca53] rounded-full flex items-center justify-center">
+            <span class="material-symbols-outlined text-[#5d4300] text-[18px]">eco</span>
+          </div>
+          <div>
+            <p class="text-[9px] font-bold text-[#5e7b89] uppercase tracking-wider">Filter</p>
+            <p class="text-xs font-bold">Pollen Mode</p>
+          </div>
+          <button id="pollen-toggle" class="toggle-track w-11 h-6 bg-slate-300 rounded-full relative ml-1">
+            <span id="toggle-knob" class="toggle-knob absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow"></span>
+          </button>
+        </div>
+
+        <!-- Heatmap Toggle -->
+        <div class="bg-white/85 backdrop-blur-xl p-3 rounded-xl shadow-lg flex items-center gap-3">
+          <div class="w-9 h-9 bg-[#ff9384] rounded-full flex items-center justify-center">
+            <span class="material-symbols-outlined text-[#690002] text-[18px]">whatshot</span>
+          </div>
+          <div>
+            <p class="text-[9px] font-bold text-[#5e7b89] uppercase tracking-wider">Overlay</p>
+            <p class="text-xs font-bold">AQI Heatmap</p>
+          </div>
+          <button id="heatmap-toggle" class="toggle-track w-11 h-6 bg-slate-300 rounded-full relative ml-1">
+            <span class="toggle-knob absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Right: Eco Score -->
+      <div class="bg-white/90 backdrop-blur-2xl p-4 rounded-xl shadow-2xl flex flex-col items-center gap-1 border border-white/50">
+        <div class="relative flex items-center justify-center">
+          <svg class="w-20 h-20 transform -rotate-90" viewBox="0 0 96 96">
+            <circle cx="48" cy="48" r="38" fill="transparent" stroke="#b8e3f9" stroke-width="8"/>
+            <circle id="eco-progress" cx="48" cy="48" r="38" fill="transparent" stroke="#006a2b" stroke-width="8"
+              stroke-dasharray="239" stroke-dashoffset="239" stroke-linecap="round"/>
+          </svg>
+          <div class="absolute flex flex-col items-center">
+            <span id="eco-score-val" class="text-2xl font-black font-headline text-[#14323e]">--</span>
+            <span id="eco-label" class="text-[8px] font-bold uppercase tracking-widest text-[#006a2b]">Loading</span>
+          </div>
+        </div>
+        <p class="text-[10px] font-bold text-[#435f6d]">Eco Score</p>
+        <p class="text-[9px] text-[#5e7b89]" id="location-text">Detecting...</p>
+      </div>
+    </div>
+
+    <!-- Bottom Info Cards -->
+    <div class="mt-auto flex flex-wrap gap-3 pointer-events-auto pb-16 lg:pb-4">
+      <!-- AQI Card -->
+      <div class="flex-1 min-w-[180px] bg-white/85 backdrop-blur-xl p-4 rounded-xl shadow-lg">
+        <div class="flex justify-between items-start mb-2">
+          <span class="material-symbols-outlined text-[#006a2b] text-2xl">air</span>
+          <span id="aqi-badge" class="bg-[#86f898] text-[#005d25] text-[9px] px-2 py-0.5 rounded-full font-bold">---</span>
+        </div>
+        <h3 class="text-xl font-black font-headline" id="aqi-val">-- AQI</h3>
+        <p class="text-[10px] text-[#435f6d] mt-1" id="aqi-desc">Fetching air quality...</p>
+      </div>
+
+      <!-- Noise Card -->
+      <div class="flex-1 min-w-[180px] bg-white/85 backdrop-blur-xl p-4 rounded-xl shadow-lg">
+        <div class="flex justify-between items-start mb-2">
+          <span class="material-symbols-outlined text-[#765600] text-2xl">waves</span>
+          <span id="noise-badge" class="bg-[#ffca53] text-[#5d4300] text-[9px] px-2 py-0.5 rounded-full font-bold">---</span>
+        </div>
+        <h3 class="text-xl font-black font-headline" id="noise-val">-- dB</h3>
+        <p class="text-[10px] text-[#435f6d] mt-1" id="noise-desc">Estimating noise...</p>
+      </div>
+
+      <!-- Status Card -->
+      <div class="bg-gradient-to-br from-[#006a2b] to-[#005d24] p-[2px] rounded-xl shadow-xl">
+        <div class="bg-white/10 h-full rounded-[calc(0.75rem-2px)] p-4 flex flex-col justify-between min-h-[100px] text-white min-w-[180px]">
+          <div>
+            <p class="text-[9px] font-bold uppercase tracking-widest opacity-75 mb-1">STATUS</p>
+            <h3 class="text-sm font-bold font-headline" id="status-title">Environmental Scan</h3>
+          </div>
+          <div class="flex items-center justify-between mt-2">
+            <span class="text-xs opacity-80" id="status-meta">Monitoring live data</span>
+            <button onclick="fetchData()" class="bg-white text-[#006a2b] w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform">
+              <span class="material-symbols-outlined text-[16px]">refresh</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== PAGE: DASHBOARD ===================== -->
+<div id="page-dashboard" class="page lg:pl-60 pt-16 min-h-screen bg-[#edf8ff]">
+  <div class="max-w-6xl mx-auto px-5 py-8 pb-28">
+    <!-- Hero -->
+    <section class="mb-8">
+      <p class="text-xs font-bold text-[#006a2b] tracking-widest uppercase mb-1">Welcome Back</p>
+      <h1 class="text-3xl md:text-4xl font-black text-[#14323e] tracking-tighter">Your <span class="text-[#006a2b] italic">Living Atlas</span></h1>
+      <p class="text-[#435f6d] mt-2 text-sm">Real-time environmental pulse for <strong id="location-display">Detecting location...</strong></p>
+    </section>
+
+    <!-- Dashboard Map -->
+    <section class="mb-8 bg-[#e0f4ff] rounded-2xl p-3 shadow-sm">
+      <div class="flex items-center justify-between mb-3 px-1">
+        <h3 class="text-base font-extrabold tracking-tight">Environmental Heatmap</h3>
+        <span class="text-xs font-bold uppercase tracking-wider text-[#006a2b] flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-green-500 pulse-dot"></span> Live Data
+        </span>
+      </div>
+      <div id="dashboard-map" style="height:280px;border-radius:1rem;z-index:1;"></div>
+      <!-- Legend -->
+      <div class="mt-2 px-1">
+        <div class="legend-gradient"></div>
+        <div class="flex justify-between text-[9px] font-bold text-[#5e7b89] mt-1">
+          <span>Clean</span><span>Moderate</span><span>Polluted</span><span>Hazardous</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bento Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+      <!-- AQI Card -->
+      <div class="bg-white rounded-2xl p-6 flex flex-col justify-between shadow-sm relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-3 opacity-5">
+          <span class="material-symbols-outlined text-[80px]">air</span>
+        </div>
+        <div>
+          <span class="inline-flex items-center px-3 py-1 bg-[#86f898] text-[#005d25] rounded-full text-[10px] font-bold tracking-wider uppercase mb-4">OpenWeather API</span>
+          <h3 class="text-lg font-bold mb-1">Air Quality</h3>
+          <p class="text-[#435f6d] text-xs" id="dash-aqi-station">Local Conditions</p>
+        </div>
+        <div class="mt-6 flex items-baseline gap-2">
+          <span class="text-5xl font-black text-[#006a2b] tracking-tighter" id="dash-aqi-value">--</span>
+          <span class="text-lg font-bold text-[#005d24] uppercase">AQI</span>
+        </div>
+        <div class="mt-3">
+          <p class="text-[#006a2b] font-bold text-sm" id="dash-aqi-status">Connecting...</p>
+          <div class="w-full bg-[#b8e3f9] h-2 rounded-full mt-2 overflow-hidden">
+            <div class="bg-[#006a2b] h-full rounded-full transition-all duration-1000" id="dash-aqi-progress" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Noise Card -->
+      <div class="bg-white rounded-2xl p-6 flex flex-col justify-between shadow-sm">
+        <div>
+          <span class="inline-flex items-center px-3 py-1 bg-[#ffca53] text-[#5d4300] rounded-full text-[10px] font-bold tracking-wider uppercase mb-4">Acoustic Pulse</span>
+          <h3 class="text-lg font-bold mb-1">Ambient Noise</h3>
+          <p class="text-[#435f6d] text-xs" id="noise-source-label">Click button below</p>
+        </div>
+        <div class="mt-6 flex items-baseline gap-2">
+          <span class="text-5xl font-black text-[#765600] tracking-tighter" id="dash-noise-value">--</span>
+          <span class="text-lg font-bold text-[#674b00] uppercase">dB</span>
+        </div>
+        <div class="mt-3">
+          <p class="text-[#765600] font-bold text-sm" id="dash-noise-status">Waiting...</p>
+          <div class="flex gap-1 h-8 items-end mt-2" id="noise-visualizer"></div>
+          <button id="enable-mic" class="mt-2 text-[10px] font-bold uppercase tracking-widest text-[#765600] hover:underline cursor-pointer">Enable Microphone</button>
+        </div>
+      </div>
+
+      <!-- Pollen Card -->
+      <div class="bg-white rounded-2xl p-6 flex flex-col justify-between shadow-sm">
+        <div>
+          <span class="inline-flex items-center px-3 py-1 bg-[#ff9384] text-[#690002] rounded-full text-[10px] font-bold tracking-wider uppercase mb-4">Bio-Metric</span>
+          <h3 class="text-lg font-bold mb-1">Pollen Count</h3>
+          <p class="text-[#435f6d] text-xs" id="pollen-station">Seasonal Analysis</p>
+        </div>
+        <div class="mt-6">
+          <span class="text-4xl font-black text-[#b41a14] tracking-tighter" id="pollen-value">--</span>
+        </div>
+        <div class="mt-3">
+          <p class="text-[#b41a14] font-bold text-sm" id="pollen-description">Analyzing data...</p>
+          <div class="flex flex-wrap gap-2 mt-2" id="pollen-tags"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart + Community -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div class="lg:col-span-8 bg-white rounded-2xl p-6 shadow-sm">
+        <div class="flex justify-between items-center mb-6">
+          <div>
+            <h3 class="text-xl font-extrabold tracking-tight">Weekly Eco Impact</h3>
+            <p class="text-[#435f6d] text-sm">Pollution avoidance metrics</p>
+          </div>
+          <div class="text-right">
+            <span class="text-2xl font-black text-[#006a2b]" id="co2-saved">0.0kg</span>
+            <p class="text-[10px] font-bold uppercase tracking-widest text-[#005d24]">CO₂ Saved Today</p>
+          </div>
+        </div>
+        <canvas id="impactChart"></canvas>
+      </div>
+
+      <div class="lg:col-span-4 flex flex-col gap-4">
+        <h3 class="text-base font-extrabold tracking-tight flex items-center gap-2 px-1">
+          <span class="material-symbols-outlined text-[#006a2b] text-[20px]">campaign</span> Community Pulse
+        </h3>
+        <div class="h-64 lg:h-[340px] overflow-y-auto pr-1 custom-scroll flex flex-col gap-3" id="news-feed"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== PAGE: ROUTES ===================== -->
+<div id="page-routes" class="page lg:pl-60 pt-16 min-h-screen bg-[#edf8ff]">
+  <div class="max-w-4xl mx-auto px-5 py-8 pb-28">
+    <h1 class="text-3xl font-black tracking-tighter mb-2">Smart Routes</h1>
+    <p class="text-[#435f6d] text-sm mb-6">Environment-aware routing based on live AQI and noise data.</p>
+
+    <!-- Route Input -->
+    <div class="bg-white rounded-2xl p-5 shadow-sm mb-6">
+      <div class="flex flex-col gap-3">
+        <div class="flex items-center gap-3 bg-[#e0f4ff] rounded-xl px-4 py-3">
+          <span class="material-symbols-outlined text-[#006a2b] text-[18px]">my_location</span>
+          <input id="route-from" class="bg-transparent border-none focus:ring-0 text-sm w-full outline-none placeholder:text-[#5e7b89]" placeholder="From: Your location..." type="text"/>
+        </div>
+        <div class="flex items-center gap-3 bg-[#e0f4ff] rounded-xl px-4 py-3">
+          <span class="material-symbols-outlined text-[#b41a14] text-[18px]">location_on</span>
+          <input id="route-to" class="bg-transparent border-none focus:ring-0 text-sm w-full outline-none placeholder:text-[#5e7b89]" placeholder="To: Destination..." type="text"/>
+        </div>
+        <button onclick="findEcoRoutes()" class="w-full bg-gradient-to-br from-[#006a2b] to-[#005d24] text-[#cfffcf] py-3 rounded-xl font-bold shadow-lg active:scale-95 transition-all">
+          🌿 Find Eco Routes
+        </button>
+      </div>
+    </div>
+
+    <!-- Route Results -->
+    <div id="route-results" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Eco Route -->
+        <div class="route-card bg-white rounded-2xl p-5 shadow-sm border-2 border-[#006a2b] cursor-pointer selected" onclick="selectRoute(this, 'eco')">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-8 h-8 bg-[#86f898] rounded-full flex items-center justify-center text-[#005d25] font-black text-sm">🌿</span>
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wider text-[#006a2b]">Recommended</p>
+              <h4 class="font-bold text-sm">Eco Route</h4>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Distance</span>
+              <span class="font-bold" id="eco-dist">Calculating...</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Est. Time</span>
+              <span class="font-bold" id="eco-time">--</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Eco Score</span>
+              <span class="font-bold text-[#006a2b]" id="eco-score-route">--/100</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Avg AQI</span>
+              <span class="font-bold text-green-600" id="eco-aqi">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fastest Route -->
+        <div class="route-card bg-white rounded-2xl p-5 shadow-sm border-2 border-transparent cursor-pointer" onclick="selectRoute(this, 'fast')">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-8 h-8 bg-[#ffca53] rounded-full flex items-center justify-center text-[#5d4300] font-black text-sm">⚡</span>
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wider text-[#765600]">Fastest</p>
+              <h4 class="font-bold text-sm">Speed Route</h4>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Distance</span>
+              <span class="font-bold" id="fast-dist">Calculating...</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Est. Time</span>
+              <span class="font-bold" id="fast-time">--</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Eco Score</span>
+              <span class="font-bold text-[#765600]" id="fast-score">--/100</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Avg AQI</span>
+              <span class="font-bold text-orange-500" id="fast-aqi">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Balance Route -->
+        <div class="route-card bg-white rounded-2xl p-5 shadow-sm border-2 border-transparent cursor-pointer" onclick="selectRoute(this, 'balance')">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-8 h-8 bg-[#cbedff] rounded-full flex items-center justify-center text-[#14323e] font-black text-sm">⚖️</span>
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wider text-[#435f6d]">Balanced</p>
+              <h4 class="font-bold text-sm">Smart Route</h4>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Distance</span>
+              <span class="font-bold" id="balance-dist">Calculating...</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Est. Time</span>
+              <span class="font-bold" id="balance-time">--</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Eco Score</span>
+              <span class="font-bold text-[#435f6d]" id="balance-score">--/100</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-[#435f6d]">Avg AQI</span>
+              <span class="font-bold text-blue-500" id="balance-aqi">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="text-center text-xs text-[#5e7b89] mt-2">Enter a destination above to compare eco-friendly routes.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== PAGE: ALERTS ===================== -->
+<div id="page-alerts" class="page lg:pl-60 pt-16 min-h-screen bg-[#edf8ff]">
+  <div class="max-w-3xl mx-auto px-5 py-8 pb-28">
+    <h1 class="text-3xl font-black tracking-tighter mb-2">Alerts & Notifications</h1>
+    <p class="text-[#435f6d] text-sm mb-6">Real-time environmental warnings for your area.</p>
+    <div id="alerts-list" class="space-y-4">
+      <div class="flex items-center justify-center py-12 text-[#5e7b89]">
+        <div class="text-center">
+          <span class="material-symbols-outlined text-4xl mb-2">notifications_off</span>
+          <p class="font-medium">Loading alerts...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== BOTTOM NAV (Mobile) ===================== -->
+<nav class="fixed bottom-0 left-0 w-full z-[1001] lg:hidden flex justify-around items-center px-4 pb-5 pt-2 bg-white/85 backdrop-blur-2xl shadow-[0_-4px_24px_rgba(20,50,62,0.08)] rounded-t-3xl">
+  <button onclick="switchPage('map')" class="mobile-nav flex flex-col items-center text-[#006a2b]">
+    <span class="material-symbols-outlined text-[22px]">explore</span>
+    <span class="text-[9px] font-bold uppercase tracking-widest mt-0.5">Map</span>
+  </button>
+  <button onclick="switchPage('routes')" class="mobile-nav flex flex-col items-center text-slate-400">
+    <span class="material-symbols-outlined text-[22px]">alt_route</span>
+    <span class="text-[9px] font-bold uppercase tracking-widest mt-0.5">Routes</span>
+  </button>
+  <button onclick="switchPage('dashboard')" class="mobile-nav flex flex-col items-center text-slate-400">
+    <span class="material-symbols-outlined text-[22px]">eco</span>
+    <span class="text-[9px] font-bold uppercase tracking-widest mt-0.5">Data</span>
+  </button>
+  <button onclick="switchPage('alerts')" class="mobile-nav flex flex-col items-center text-slate-400">
+    <span class="material-symbols-outlined text-[22px]">notifications_active</span>
+    <span class="text-[9px] font-bold uppercase tracking-widest mt-0.5">Alerts</span>
+  </button>
+</nav>
+
+<!-- ===================== ALERT TOAST ===================== -->
+<div id="alert-toast" class="fixed bottom-24 lg:bottom-6 right-4 z-[2000] bg-[#b41a14] text-white px-4 py-3 rounded-xl shadow-2xl max-w-xs flex items-start gap-3">
+  <span class="material-symbols-outlined text-[20px] mt-0.5">warning</span>
+  <div>
+    <p class="font-bold text-sm" id="toast-title">High Pollution Alert</p>
+    <p class="text-xs opacity-80" id="toast-msg">AQI exceeds safe limits in your area.</p>
+  </div>
+  <button onclick="hideToast()" class="ml-2 opacity-70 hover:opacity-100">
+    <span class="material-symbols-outlined text-[16px]">close</span>
+  </button>
+</div>
+
+<!-- ===================== SCRIPTS ===================== -->
+<script>
+// ============================================================
+// CONFIG - Replace with your actual API keys
+// ============================================================
+const CONFIG = {
+  OW_KEY: '5f2998a442d8d649d8c0756779a52a32', // OpenWeatherMap (Free tier)
+  DEFAULT_LAT: 26.2183,  // Gwalior, IIITM
+  DEFAULT_LON: 78.1828,
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let state = {
+  lat: CONFIG.DEFAULT_LAT,
+  lon: CONFIG.DEFAULT_LON,
+  aqi: null,
+  aqiIndex: 1,
+  noise: 45,
+  ecoScore: 0,
+  locationName: 'Gwalior, IN',
+  pollenActive: false,
+  heatmapActive: false,
+  isMicEnabled: false,
+  audioContext: null,
+  analyser: null,
+  micStream: null,
+  dataArray: null,
+};
+
+// ============================================================
+// MAPS
+// ============================================================
+let mainMap, dashMap, heatLayer, pollenLayerGroup, dashHeatLayer;
+let mapUpdateTimeout;
+
+function initMaps() {
+  const tileUrl = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  const tileOpts = { maxZoom: 20, attribution: '© OpenStreetMap © CARTO' };
+
+  // Main Map
+  mainMap = L.map('map', { zoomControl: true, attributionControl: false })
+    .setView([state.lat, state.lon], 13);
+  L.tileLayer(tileUrl, tileOpts).addTo(mainMap);
+  pollenLayerGroup = L.layerGroup();
+
+  mainMap.on('moveend', () => {
+    clearTimeout(mapUpdateTimeout);
+    mapUpdateTimeout = setTimeout(() => {
+      const c = mainMap.getCenter();
+      state.lat = c.lat; state.lon = c.lng;
+      fetchData();
+    }, 600);
+  });
+
+  // Dashboard Map
+  dashMap = L.map('dashboard-map', { zoomControl: false, attributionControl: false })
+    .setView([state.lat, state.lon], 12);
+  L.tileLayer(tileUrl, tileOpts).addTo(dashMap);
+}
+
+// ============================================================
+// API: FETCH EVERYTHING
+// ============================================================
+async function fetchData() {
+  try {
+    await Promise.all([
+      fetchLocationName(state.lat, state.lon),
+      fetchAQI(state.lat, state.lon),
+    ]);
+    estimateNoise();
+    updateEcoScore();
+    updateHeatmap();
+    renderAlerts();
+  } catch(e) {
+    console.error('fetchData error:', e);
+    document.getElementById('status-title').textContent = 'Connection Error';
+  }
+}
+
+async function fetchLocationName(lat, lon) {
+  try {
+    const res = await fetch(
+      `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${CONFIG.OW_KEY}`
+    );
+    if (!res.ok) throw new Error('Geo API error');
+    const data = await res.json();
+    if (data[0]) {
+      state.locationName = `${data[0].name}, ${data[0].country}`;
+      document.getElementById('location-text').textContent = state.locationName;
+      document.getElementById('location-display').textContent = state.locationName;
+    }
+  } catch(e) {
+    console.warn('Geo lookup failed:', e);
+    document.getElementById('location-text').textContent = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+  }
+}
+
+async function fetchAQI(lat, lon) {
+  try {
+    const res = await fetch(
+      `https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${CONFIG.OW_KEY}`
+    );
+    if (!res.ok) throw new Error('AQI API error ' + res.status);
+    const data = await res.json();
+    const item = data.list[0];
+    state.aqiIndex = item.main.aqi; // 1-5
+
+    // Map OW index to readable AQI value
+    const aqiMap = { 1: 12, 2: 35, 3: 65, 4: 130, 5: 220 };
+    state.aqi = aqiMap[state.aqiIndex] || 50;
+
+    updateAQIUI(state.aqi, state.aqiIndex);
+    document.getElementById('status-title').textContent = 'Data Updated';
+    document.getElementById('status-meta').textContent = 'Live: ' + new Date().toLocaleTimeString();
+
+    // Check for alert
+    if (state.aqiIndex >= 4) showToast('High Pollution Alert', 'AQI is ' + state.aqi + '. Consider an alternative route.');
+
+  } catch(e) {
+    console.error('AQI fetch failed:', e);
+    // Fallback to simulation
+    state.aqiIndex = Math.ceil(Math.random() * 3);
+    const aqiMap = { 1: 12, 2: 35, 3: 65 };
+    state.aqi = aqiMap[state.aqiIndex] || 35;
+    updateAQIUI(state.aqi, state.aqiIndex, true);
+  }
+}
+
+function estimateNoise() {
+  if (state.isMicEnabled) return; // mic handles it
+  const zoom = mainMap ? mainMap.getZoom() : 13;
+  state.noise = Math.round(30 + (zoom * 0.8) + (Math.random() * 12));
+  updateNoiseUI(state.noise);
+}
+
+// ============================================================
+// UI UPDATERS
+// ============================================================
+const AQI_LEVELS = ['', 'GOOD', 'FAIR', 'MODERATE', 'POOR', 'CRITICAL'];
+const AQI_COLORS = ['', 'bg-green-100 text-green-800', 'bg-lime-100 text-lime-800',
+  'bg-yellow-100 text-yellow-800', 'bg-orange-100 text-orange-800', 'bg-red-100 text-red-800'];
+const AQI_DESCS = ['',
+  'Air is crisp and clean. Perfect for outdoor activity.',
+  'Air quality is satisfactory. Good for most people.',
+  'Moderate pollution. Sensitive groups should be cautious.',
+  'Poor air quality. Wear a mask and limit exposure.',
+  'Health alert! Everyone may experience health effects.'
+];
+const AQI_PROG_COLORS = ['', '#22c55e', '#a3e635', '#eab308', '#f97316', '#ef4444'];
+
+function updateAQIUI(val, index, simulated = false) {
+  // Map page
+  const badge = AQI_LEVELS[index] || 'MODERATE';
+  document.getElementById('aqi-val').textContent = `${val} AQI`;
+  const elBadge = document.getElementById('aqi-badge');
+  elBadge.textContent = badge;
+  elBadge.className = `text-[9px] px-2 py-0.5 rounded-full font-bold ${AQI_COLORS[index] || 'bg-slate-100'}`;
+  document.getElementById('aqi-desc').textContent = AQI_DESCS[index] || 'Monitoring...';
+
+  // Dashboard page
+  document.getElementById('dash-aqi-value').textContent = val;
+  document.getElementById('dash-aqi-status').textContent = badge + (simulated ? ' (estimated)' : '');
+  document.getElementById('dash-aqi-station').textContent = simulated ? 'Simulated Data' : 'OpenWeather Live';
+  const prog = Math.min(100, (val / 200) * 100);
+  document.getElementById('dash-aqi-progress').style.width = prog + '%';
+  document.getElementById('dash-aqi-progress').style.background = AQI_PROG_COLORS[index] || '#eab308';
+
+  // CO2 impact estimate
+  const co2 = ((5 - index) * 2.8).toFixed(1);
+  document.getElementById('co2-saved').textContent = co2 + 'kg';
+  if (window.impactChart) {
+    window.impactChart.data.datasets[0].data[6] = parseFloat(co2);
+    window.impactChart.update('none');
+  }
+}
+
+function updateNoiseUI(val) {
+  document.getElementById('noise-val').textContent = `${val} dB`;
+  document.getElementById('dash-noise-value').textContent = val;
+
+  let status = 'QUIET', desc = 'Serene environment.';
+  let badgeClass = 'bg-green-100 text-green-800';
+  if (val > 65) { status = 'LOUD'; badgeClass = 'bg-orange-100 text-orange-800'; desc = 'High urban noise.'; }
+  else if (val > 50) { status = 'MODERATE'; badgeClass = 'bg-yellow-100 text-yellow-800'; desc = 'City hum audible.'; }
+
+  document.getElementById('noise-badge').textContent = status;
+  document.getElementById('noise-badge').className = `text-[9px] px-2 py-0.5 rounded-full font-bold ${badgeClass}`;
+  document.getElementById('noise-desc').textContent = desc;
+  document.getElementById('dash-noise-status').textContent = status + ' · ' + val + ' dB';
+}
+
+function updateEcoScore() {
+  const aqiScore = Math.max(0, (200 - (state.aqi || 50)) / 200 * 65);
+  const noiseScore = Math.max(0, (100 - state.noise) / 100 * 35);
+  state.ecoScore = Math.round(aqiScore + noiseScore);
+
+  document.getElementById('eco-score-val').textContent = state.ecoScore;
+  const offset = 239 - (239 * state.ecoScore / 100);
+  document.getElementById('eco-progress').style.strokeDashoffset = offset;
+
+  const el = document.getElementById('eco-label');
+  if (state.ecoScore > 80) { el.textContent = 'Excellent'; el.style.color = '#006a2b'; }
+  else if (state.ecoScore > 60) { el.textContent = 'Healthy'; el.style.color = '#22c55e'; }
+  else if (state.ecoScore > 40) { el.textContent = 'Fair'; el.style.color = '#eab308'; }
+  else { el.textContent = 'Poor'; el.style.color = '#ef4444'; }
+}
+
+// ============================================================
+// HEATMAP
+// ============================================================
+function updateHeatmap() {
+  const intensity = (state.aqiIndex || 1) / 5;
+  const pts = [];
+  for (let i = 0; i < 30; i++) {
+    pts.push([
+      state.lat + (Math.random() - 0.5) * 0.06,
+      state.lon + (Math.random() - 0.5) * 0.06,
+      Math.random() * intensity
+    ]);
+  }
+  pts.push([state.lat, state.lon, intensity]);
+
+  const heatOpts = {
+    radius: 40, blur: 25, maxZoom: 17,
+    gradient: { 0.2: '#22c55e', 0.4: '#a3e635', 0.6: '#eab308', 0.8: '#f97316', 1: '#ef4444' }
+  };
+
+  if (state.heatmapActive && mainMap) {
+    if (heatLayer) mainMap.removeLayer(heatLayer);
+    heatLayer = L.heatLayer(pts, heatOpts).addTo(mainMap);
+  }
+
+  // Always show on dashboard map
+  if (dashMap) {
+    if (dashHeatLayer) dashMap.removeLayer(dashHeatLayer);
+    dashHeatLayer = L.heatLayer(pts, heatOpts).addTo(dashMap);
+    dashMap.setView([state.lat, state.lon], 12);
+  }
+}
+
+// ============================================================
+// POLLEN OVERLAY (Simulated — no free pollen API available)
+// ============================================================
+function updatePollenOverlay() {
+  pollenLayerGroup.clearLayers();
+  if (!state.pollenActive) return;
+  for (let i = 0; i < 6; i++) {
+    L.circle([
+      state.lat + (Math.random() - 0.5) * 0.08,
+      state.lon + (Math.random() - 0.5) * 0.08
+    ], {
+      color: '#f8ba00', fillColor: '#f8ba00', fillOpacity: 0.18,
+      radius: 600 + Math.random() * 1200, stroke: false
+    }).addTo(pollenLayerGroup);
+  }
+  pollenLayerGroup.addTo(mainMap);
+
+  // Dashboard pollen card
+  const levels = ['Low', 'Moderate', 'Low', 'High'];
+  const lvl = levels[Math.floor(state.aqiIndex % 4)];
+  document.getElementById('pollen-value').textContent = lvl;
+  document.getElementById('pollen-description').textContent = 'Atmospheric allergens detected.';
+  document.getElementById('pollen-station').textContent = 'Simulated seasonal data';
+  const types = ['Birch', 'Oak', 'Grass', 'Ragweed'];
+  document.getElementById('pollen-tags').innerHTML = types.slice(0,2).map(t =>
+    `<span class="px-2 py-0.5 bg-[#cbedff] text-[#14323e] text-[10px] font-semibold rounded-full">${t}</span>`
+  ).join('');
+}
+
+// ============================================================
+// CITY SEARCH
+// ============================================================
+document.getElementById('city-search').addEventListener('keypress', async (e) => {
+  if (e.key === 'Enter' && e.target.value.trim()) {
+    try {
+      const res = await fetch(
+        `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(e.target.value)}&limit=1&appid=${CONFIG.OW_KEY}`
+      );
+      const data = await res.json();
+      if (data[0]) {
+        state.lat = data[0].lat; state.lon = data[0].lon;
+        mainMap.flyTo([state.lat, state.lon], 13);
+        e.target.value = '';
+      } else {
+        alert('City not found. Try a different name.');
+      }
+    } catch(err) { console.error('Search error:', err); }
+  }
+});
+
+// ============================================================
+// TOGGLES
+// ============================================================
+document.getElementById('pollen-toggle').addEventListener('click', function() {
+  state.pollenActive = !state.pollenActive;
+  const knob = this.querySelector('.toggle-knob') || document.getElementById('toggle-knob');
+  if (state.pollenActive) {
+    this.style.background = '#006a2b';
+    knob.style.left = '26px';
+    updatePollenOverlay();
+  } else {
+    this.style.background = '#cbd5e1';
+    knob.style.left = '4px';
+    pollenLayerGroup.remove();
+  }
+});
+
+document.getElementById('heatmap-toggle').addEventListener('click', function() {
+  state.heatmapActive = !state.heatmapActive;
+  const knob = this.querySelector('.toggle-knob');
+  if (state.heatmapActive) {
+    this.style.background = '#b41a14';
+    knob.style.left = '26px';
+    updateHeatmap();
+  } else {
+    this.style.background = '#cbd5e1';
+    knob.style.left = '4px';
+    if (heatLayer) { mainMap.removeLayer(heatLayer); heatLayer = null; }
+  }
+});
+
+// ============================================================
+// MICROPHONE
+// ============================================================
+async function setupMicrophone() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    state.analyser = state.audioContext.createAnalyser();
+    state.micStream = state.audioContext.createMediaStreamSource(stream);
+    state.micStream.connect(state.analyser);
+    state.analyser.fftSize = 64;
+    state.dataArray = new Uint8Array(state.analyser.frequencyBinCount);
+    state.isMicEnabled = true;
+    document.getElementById('noise-source-label').textContent = 'Live Microphone Feed';
+    document.getElementById('enable-mic').classList.add('hidden');
+    animateNoise();
+  } catch(err) {
+    console.error('Mic error:', err);
+    document.getElementById('noise-source-label').textContent = 'Mic denied – using simulation';
+    simulateNoise();
+  }
+}
+
+function animateNoise() {
+  if (!state.isMicEnabled) return;
+  requestAnimationFrame(animateNoise);
+  state.analyser.getByteFrequencyData(state.dataArray);
+  let sum = 0;
+  const bars = document.querySelectorAll('.noise-bar');
+  bars.forEach((bar, i) => {
+    const val = state.dataArray[i] || 0;
+    sum += val;
+    bar.style.height = Math.max(10, (val / 255) * 100) + '%';
+  });
+  const db = Math.floor((sum / state.dataArray.length / 255) * 60) + 30;
+  state.noise = db;
+  updateNoiseUI(db);
+}
+
+function simulateNoise() {
+  setInterval(() => {
+    if (state.isMicEnabled) return;
+    const bars = document.querySelectorAll('.noise-bar');
+    bars.forEach(bar => { bar.style.height = (Math.random() * 80 + 10) + '%'; });
+    const db = Math.floor(Math.random() * 25) + 40;
+    state.noise = db;
+    updateNoiseUI(db);
+    updateEcoScore();
+  }, 250);
+}
+
+document.getElementById('enable-mic').addEventListener('click', setupMicrophone);
+
+// ============================================================
+// NOISE VISUALIZER BARS
+// ============================================================
+const vizEl = document.getElementById('noise-visualizer');
+for (let i = 0; i < 14; i++) {
+  const d = document.createElement('div');
+  d.className = 'w-1 bg-[#765600] rounded-full noise-bar';
+  d.style.height = '10%';
+  vizEl.appendChild(d);
+}
+
+// ============================================================
+// IMPACT CHART
+// ============================================================
+function initChart() {
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const data = [3.2, 4.1, 2.8, 5.0, 3.9, 4.5, 0];
+  const ctx = document.getElementById('impactChart').getContext('2d');
+  window.impactChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: days,
+      datasets: [{
+        label: 'CO₂ Saved (kg)',
+        data: data,
+        backgroundColor: '#006a2b',
+        borderRadius: 8,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { display: false, beginAtZero: true, max: 8 },
+        x: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 10 }, color: '#435f6d' } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// COMMUNITY PULSE / NEWS FEED
+// ============================================================
+function renderNews() {
+  const newsData = [
+    { type: 'Alert', title: 'Elevated AQI near industrial zones.', time: '5M AGO', desc: 'Wind carrying particulates from nearby construction.', icon: 'warning', color: 'text-red-600 bg-red-50' },
+    { type: 'Update', title: 'Clear skies forecast for tomorrow.', time: '1H AGO', desc: 'Ideal conditions for morning outdoor exercise.', icon: 'sunny', color: 'text-yellow-700 bg-yellow-50' },
+    { type: 'News', title: 'New EV charging stations installed.', time: '3H AGO', desc: 'Station 4 now supports Ultra-Fast 150kW charging.', icon: 'electric_car', color: 'text-green-700 bg-green-50' },
+    { type: 'Tip', title: 'Best time to commute: 7–8 AM.', time: '6H AGO', desc: 'AQI is lowest before traffic peaks. Plan your route!', icon: 'tips_and_updates', color: 'text-blue-700 bg-blue-50' },
+    { type: 'Alert', title: 'Pollen count elevated this week.', time: '1D AGO', desc: 'Birch and oak pollen high due to warm weather.', icon: 'local_florist', color: 'text-orange-700 bg-orange-50' },
+  ];
+  document.getElementById('news-feed').innerHTML = newsData.map(item => `
+    <div class="bg-[#e0f4ff] rounded-xl p-4 cursor-pointer hover:bg-[#cbedff] transition-colors">
+      <div class="flex justify-between items-start mb-2">
+        <span class="text-[10px] font-black tracking-widest uppercase px-2 py-0.5 rounded ${item.color}">${item.type}</span>
+        <span class="text-[10px] text-[#5e7b89] font-bold">${item.time}</span>
+      </div>
+      <h4 class="font-bold text-sm text-[#14323e]">${item.title}</h4>
+      <p class="text-[11px] text-[#435f6d] mt-1">${item.desc}</p>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+// ALERTS PAGE
+// ============================================================
+function renderAlerts() {
+  const aqi = state.aqiIndex;
+  const alerts = [];
+
+  if (aqi >= 4) {
+    alerts.push({
+      level: 'critical', icon: 'air', title: 'Critical Air Quality',
+      desc: `Current AQI of ${state.aqi} poses health risks. Avoid prolonged outdoor exposure.`,
+      time: 'Just now', color: 'bg-red-50 border-red-200'
+    });
+  } else if (aqi === 3) {
+    alerts.push({
+      level: 'warning', icon: 'air', title: 'Moderate Air Pollution',
+      desc: `AQI is ${state.aqi}. Sensitive groups (asthma, elderly) should limit outdoor time.`,
+      time: 'Just now', color: 'bg-orange-50 border-orange-200'
+    });
+  } else {
+    alerts.push({
+      level: 'ok', icon: 'check_circle', title: 'Good Air Quality',
+      desc: `AQI is ${state.aqi || '--'} in ${state.locationName}. Enjoy outdoor activities!`,
+      time: 'Just now', color: 'bg-green-50 border-green-200'
+    });
+  }
+
+  alerts.push(
+    { level: 'info', icon: 'wb_sunny', title: 'Weather: Clear', desc: 'Favorable conditions for the next 12 hours.', time: '10M AGO', color: 'bg-sky-50 border-sky-200' },
+    { level: 'info', icon: 'local_florist', title: 'Pollen Season Active', desc: 'Birch and grass pollen elevated. Enable Pollen Mode on the map.', time: '1H AGO', color: 'bg-yellow-50 border-yellow-200' }
+  );
+
+  const iconColors = { critical: 'text-red-600', warning: 'text-orange-500', ok: 'text-green-600', info: 'text-sky-600' };
+
+  document.getElementById('alerts-list').innerHTML = alerts.map(a => `
+    <div class="rounded-2xl p-5 border ${a.color} flex gap-4">
+      <span class="material-symbols-outlined ${iconColors[a.level]} text-[24px] mt-0.5">${a.icon}</span>
+      <div class="flex-1">
+        <div class="flex justify-between items-start">
+          <h4 class="font-bold">${a.title}</h4>
+          <span class="text-[10px] text-[#5e7b89] font-bold ml-2 whitespace-nowrap">${a.time}</span>
+        </div>
+        <p class="text-sm text-[#435f6d] mt-1">${a.desc}</p>
+      </div>
+    </div>
+  `).join('');
+
+  if (aqi >= 4) {
+    document.getElementById('alert-badge').classList.remove('hidden');
+  }
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+let toastTimeout;
+function showToast(title, msg) {
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('alert-toast').classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(hideToast, 6000);
+}
+function hideToast() { document.getElementById('alert-toast').classList.remove('show'); }
+
+// ============================================================
+// ROUTES PAGE
+// ============================================================
+function findEcoRoutes() {
+  const from = document.getElementById('route-from').value || 'Current Location';
+  const to = document.getElementById('route-to').value;
+  if (!to) { alert('Please enter a destination.'); return; }
+
+  // Simulate route data based on current AQI
+  const baseAQI = state.aqi || 35;
+  const aqiIndex = state.aqiIndex || 2;
+
+  const ecoAQI = Math.max(10, baseAQI - 20);
+  const fastAQI = baseAQI + 15;
+  const balAQI = baseAQI - 5;
+
+  const ecoScore = Math.round(Math.max(0, (200 - ecoAQI) / 200 * 65 + (100 - state.noise) / 100 * 35));
+  const fastScore = Math.round(Math.max(0, (200 - fastAQI) / 200 * 65 + (100 - (state.noise + 10)) / 100 * 35));
+  const balScore = Math.round(Math.max(0, (200 - balAQI) / 200 * 65 + (100 - state.noise) / 100 * 35));
+
+  document.getElementById('eco-dist').textContent = (3.2 + Math.random()).toFixed(1) + ' km';
+  document.getElementById('eco-time').textContent = '~' + Math.floor(8 + Math.random()*4) + ' min';
+  document.getElementById('eco-score-route').textContent = ecoScore + '/100';
+  document.getElementById('eco-aqi').textContent = ecoAQI + ' AQI';
+
+  document.getElementById('fast-dist').textContent = (2.1 + Math.random()).toFixed(1) + ' km';
+  document.getElementById('fast-time').textContent = '~' + Math.floor(5 + Math.random()*3) + ' min';
+  document.getElementById('fast-score').textContent = fastScore + '/100';
+  document.getElementById('fast-aqi').textContent = fastAQI + ' AQI';
+
+  document.getElementById('balance-dist').textContent = (2.7 + Math.random()).toFixed(1) + ' km';
+  document.getElementById('balance-time').textContent = '~' + Math.floor(6 + Math.random()*4) + ' min';
+  document.getElementById('balance-score').textContent = balScore + '/100';
+  document.getElementById('balance-aqi').textContent = balAQI + ' AQI';
+
+  document.querySelector('#route-results p').textContent =
+    `Routes from "${from}" to "${to}" based on live AQI data.`;
+}
+
+function selectRoute(el, type) {
+  document.querySelectorAll('.route-card').forEach(c => {
+    c.classList.remove('selected', 'border-[#006a2b]', 'border-[#765600]', 'border-[#435f6d]');
+    c.style.borderColor = 'transparent';
+  });
+  el.classList.add('selected');
+  const colors = { eco: '#006a2b', fast: '#765600', balance: '#435f6d' };
+  el.style.borderColor = colors[type] || '#006a2b';
+}
+
+// ============================================================
+// PAGE NAVIGATION
+// ============================================================
+function switchPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+
+  // Update nav highlights
+  document.querySelectorAll('.nav-tab').forEach(b => {
+    b.className = 'nav-tab px-4 py-2 rounded-full text-sm font-semibold text-slate-500 hover:bg-green-50 font-headline transition-all';
+  });
+  const tabs = ['map', 'dashboard', 'routes', 'alerts'];
+  const idx = tabs.indexOf(name);
+  const navBtns = document.querySelectorAll('.nav-tab');
+  if (navBtns[idx]) navBtns[idx].className = 'nav-tab px-4 py-2 rounded-full text-sm font-bold text-green-700 bg-green-100 font-headline transition-all';
+
+  // Sidebar
+  document.querySelectorAll('.sidebar-btn').forEach((b, i) => {
+    if (i === idx) {
+      b.className = 'sidebar-btn w-full text-left px-4 py-3 flex items-center gap-3 rounded-full font-bold bg-green-100 text-green-900 transition-all';
+    } else {
+      b.className = 'sidebar-btn w-full text-left px-4 py-3 flex items-center gap-3 text-slate-600 hover:translate-x-1 transition-all';
+    }
+  });
+
+  // Mobile nav
+  document.querySelectorAll('.mobile-nav').forEach((b, i) => {
+    b.className = 'mobile-nav flex flex-col items-center ' + (i === idx ? 'text-[#006a2b]' : 'text-slate-400');
+  });
+
+  // Invalidate map sizes when switching to map page
+  if (name === 'map') setTimeout(() => mainMap && mainMap.invalidateSize(), 100);
+  if (name === 'dashboard') setTimeout(() => dashMap && dashMap.invalidateSize(), 100);
+}
+
+// ============================================================
+// GEOLOCATION
+// ============================================================
+function tryGeolocation() {
+  if (!navigator.geolocation) return fetchData();
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      state.lat = pos.coords.latitude;
+      state.lon = pos.coords.longitude;
+      if (mainMap) mainMap.setView([state.lat, state.lon], 14);
+      fetchData();
+    },
+    () => fetchData(), // Use defaults
+    { timeout: 6000 }
+  );
+}
+
+// ============================================================
+// INIT
+// ============================================================
+window.addEventListener('load', () => {
+  initMaps();
+  initChart();
+  simulateNoise();
+  renderNews();
+  tryGeolocation();
+  // Periodic refresh every 3 minutes
+  setInterval(fetchData, 3 * 60 * 1000);
+});
+
+window.addEventListener('resize', () => {
+  if (mainMap) mainMap.invalidateSize();
+  if (dashMap) dashMap.invalidateSize();
+});
+</script>
+</body>
+</html>
